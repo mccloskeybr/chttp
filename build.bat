@@ -42,7 +42,7 @@ IF NOT EXIST .\build mkdir .\build
 IF NOT EXIST .\bin mkdir .\bin
 pushd .\src
 
-cl %compiler_flags% server.c /Fo..\build\ /Fm..\build\ /Fd..\build\ /Fe..\bin\^
+cl %compiler_flags% main.c /Fo..\build\ /Fm..\build\ /Fd..\build\ /Fe..\bin\^
  /link %linker_flags% %linker_libs% /SUBSYSTEM:console
 
 popd

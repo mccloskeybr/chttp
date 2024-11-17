@@ -1,35 +1,10 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-typedef enum {
-  Status_Ok,
-  Status_Error,
-} Status;
-
-typedef enum {
-  HttbVerb_Get,
-} HttpVerb;
-
-typedef enum {
-  HttpStatusCode_Ok = 200,
-} HttpStatusCode;
-
-typedef struct HttpHeaderNode {
-  char* key;
-  char* value;
-  struct HttpHeaderNode* next;
-} HttpHeaderNode;
-
-typedef struct {
-  HttpVerb verb;
-  char path[32];
-  HttpHeaderNode* headers;
-} HttpRequest;
-
-typedef struct {
-  HttpStatusCode status_code;
-  HttpHeaderNode* headers;
-  char* body;
-} HttpResponse;
+Status CreateServerSocket(char* address, uint16_t port, int32_t* server_fd);
+Status ClientAccept(int32_t server_fd, int32_t* client_fd, char (*client_address)[INET6_ADDRSTRLEN]);
+Status ClientClose(int32_t client_fd);
+Status ClientReceive(int32_t client_fd, String* request_raw);
+Status ClientSend(int32_t client_fd, StringView response_raw);
 
 #endif
