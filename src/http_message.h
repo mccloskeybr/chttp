@@ -36,7 +36,6 @@ typedef struct {
 Status HttpRequestCreateFromString(StringView request_raw, HttpRequest* request);
 void HttpRequestFree(HttpRequest request);
 
-Status HttpResponseCreateFromStatus(Status status, HttpResponse* response);
 void HttpResponseFree(HttpResponse response);
 Status HttpResponseAddHeader(HttpResponse* response, HttpHeaderKey key, String value);
 Status HttpResponseToString(HttpResponse response, String* response_raw);

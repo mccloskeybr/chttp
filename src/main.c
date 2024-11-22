@@ -12,47 +12,52 @@
 #include "cdefault_status.h"
 
 #include "http_message.c"
+#include "socket.c"
+#include "thread.c"
 #include "server.c"
 
+#define MAX_IN_FLIGHT_REQUESTS THREAD_COUNT
+
 typedef struct {
-  int32_t fd;
-  char address[INET6_ADDRSTRLEN];
+  ClientInfo* client_info;
   String request_raw;
   HttpRequest request;
   String response_raw;
   HttpResponse response;
-} ClientContext;
+} ConnectionContext;
 
-void ClientContextClose(ClientContext client) {
-  LOG_INFO("Closing connection: %s", client.address);
+void ConnectionClose(ConnectionContext context) {
+  LOG_INFO("Closing connection: %s", context.client_info->address);
 
-  ClientClose(client.fd);
-  StringFree(NULL, client.request_raw);
-  HttpRequestFree(client.request);
-  StringFree(NULL, client.response_raw);
-  HttpResponseFree(client.response);
+  ClientClose(context.client_info);
+  free(context.client_info);
+  StringFree(NULL, context.request_raw);
+  HttpRequestFree(context.request);
+  StringFree(NULL, context.response_raw);
+  HttpResponseFree(context.response);
 }
 
-void ClientContextTrySendStatusAndClose(ClientContext client, Status status) {
-  HttpResponse status_response = {};
-  if (HttpResponseCreateFromStatus(status, &status_response).code != StatusCode_Ok) {
-    HttpResponseFree(status_response);
-    ClientContextClose(client);
-    return;
-  }
+void HandleRequest(void* data) {
+  ConnectionContext context = {};
+  context.client_info = (ClientInfo*) data;
+  Status status = {}; // TODO: attempt to return an error page instead of just giving up.
 
-  String status_response_raw = {};
-  if (HttpResponseToString(status_response, &status_response_raw).code != StatusCode_Ok) {
-    StringFree(NULL, status_response_raw);
-    HttpResponseFree(status_response);
-    ClientContextClose(client);
-    return;
-  }
+  status = ClientReceive(context.client_info, &context.request_raw);
+  if (status.code != StatusCode_Ok) { ConnectionClose(context); return; }
 
-  ClientSend(client.fd, S_SV(status_response_raw));
-  StringFree(NULL, status_response_raw);
-  HttpResponseFree(status_response);
-  ClientContextClose(client);
+  status = HttpRequestCreateFromString(S_SV(context.request_raw), &context.request);
+  if (status.code != StatusCode_Ok) { ConnectionClose(context); return; }
+
+  status = ProcessRequest(&context.request, &context.response);
+  if (status.code != StatusCode_Ok) { ConnectionClose(context); return; }
+
+  status = HttpResponseToString(context.response, &context.response_raw);
+  if (status.code != StatusCode_Ok) { ConnectionClose(context); return; }
+
+  status = ClientSend(context.client_info, S_SV(context.response_raw));
+  if (status.code != StatusCode_Ok) { ConnectionClose(context); return; }
+
+  ConnectionClose(context);
 }
 
 int32_t main() {
@@ -69,47 +74,25 @@ int32_t main() {
   FATAL_IF_ERROR(CreateServerSocket(address, port, &server_fd));
   LOG_INFO("Listening to http://%s:%d", address, port);
 
+  ThreadPool thread_pool;
+  FATAL_IF_ERROR(ThreadPoolInit(&thread_pool));
+
   for (;;) {
-    ClientContext client = {};
-    if (ClientAccept(server_fd, &client.fd, &client.address).code != StatusCode_Ok) {
-      continue;
-    }
-    LOG_INFO("Accepted connection from: %s.", client.address);
+    while (thread_pool.in_flight_requests > MAX_IN_FLIGHT_REQUESTS) {}
 
-    Status status = {};
-    status = ClientReceive(client.fd, &client.request_raw);
-    if (status.code != StatusCode_Ok) {
-      ClientContextTrySendStatusAndClose(client, status);
-      continue;
-    }
+    ClientInfo* client_info = malloc(sizeof(ClientInfo));
+    if (client_info == NULL) { LOG_ERROR("Unable to allocate client info!"); continue; }
+    *client_info = (ClientInfo) {};
+    if (ClientAccept(server_fd, client_info).code != StatusCode_Ok) { free(client_info); continue; }
+    LOG_INFO("Accepted connection from: %s.", client_info->address);
 
-    status = HttpRequestCreateFromString(S_SV(client.request_raw), &client.request);
-    if (status.code != StatusCode_Ok) {
-      ClientContextTrySendStatusAndClose(client, status);
-      continue;
-    }
-
-    status = HttpResponseCreateTestMessage(&client.response);
-    if (status.code != StatusCode_Ok) {
-      ClientContextTrySendStatusAndClose(client, status);
-      continue;
-    }
-
-    status = HttpResponseToString(client.response, &client.response_raw);
-    if (status.code != StatusCode_Ok) {
-      ClientContextTrySendStatusAndClose(client, status);
-      continue;
-    }
-
-    status = ClientSend(client.fd, S_SV(client.response_raw));
-    if (status.code != StatusCode_Ok) {
-      ClientContextTrySendStatusAndClose(client, status);
-      continue;
-    }
-
-    ClientContextClose(client);
+    WorkItem item = {};
+    item.callback = HandleRequest;
+    item.data = client_info;
+    while (!ThreadPoolAddWorkItem(&thread_pool, item)) {}
   }
 
   LOG_INFO("Closing...");
+  ThreadPoolClose(&thread_pool);
   WSACleanup();
 }

@@ -65,14 +65,14 @@ Status HttpRequestCreateFromString(StringView request_raw, HttpRequest* request)
 
   StringView verb_sv;
   if (!StringViewNext(&request_it, &verb_sv, C_SV(" "))) {
-    return INVALID_ARGUMENT("Malformed HTTP verb in request.");
+    return INVALID_ARGUMENT("Malformed HTTP verb in request: %s", request_raw.ptr);
   }
   StringView path_sv;
   if (!StringViewNext(&request_it, &path_sv, C_SV(" "))) {
-    return INVALID_ARGUMENT("Malformed HTTP path in request.");
+    return INVALID_ARGUMENT("Malformed HTTP path in request: %s", request_raw.ptr);
   }
   if (!StringViewNext(&request_it, NULL, C_SV("\r\n"))) {
-    return INVALID_ARGUMENT("Malformed HTTP version in request.");
+    return INVALID_ARGUMENT("Malformed HTTP version in request: %s", request_raw.ptr);
   }
 
   *request = (HttpRequest) {};
@@ -112,59 +112,6 @@ void HttpRequestFree(HttpRequest request) {
     free(to_free);
   }
   StringFree(NULL, request.path);
-}
-
-Status HttpResponseCreateFromStatusHelper(Status status, HttpResponse* response, bool status_only) {
-  *response = (HttpResponse) {};
-  int http_status_code = StatusCodeToHttpStatusCode(status.code);
-  response->code = http_status_code;
-  if (status_only) { return OK(); }
-  String body = StringCreate(NULL,
-        "<!DOCTYPE html>"
-        "<html>"
-        "  <body>"
-        "    STATUS: %d, message: %s"
-        "  </body>"
-        "</html>"
-      , http_status_code, status.msg);
-  if (body.buf == NULL) { return RESOURCE_EXHAUSTED(""); }
-  response->body = body;
-  RETURN_IF_ERROR(HttpResponseAddHeader(
-        response, HttpHeaderKey_ContentType, StringCreate(NULL, "text/html")));
-  RETURN_IF_ERROR(HttpResponseAddHeader(
-        response, HttpHeaderKey_Connection, StringCreate(NULL, "close")));
-  RETURN_IF_ERROR(HttpResponseAddHeader(
-        response, HttpHeaderKey_ContentLength, StringCreate(NULL, "%d", body.length)));
-  return OK();
-}
-
-Status HttpResponseCreateFromStatus(Status status, HttpResponse* response) {
-  Status s = HttpResponseCreateFromStatusHelper(status, response, false);
-  if (s.code == StatusCode_ResourceExhausted) {
-    return HttpResponseCreateFromStatusHelper(status, response, true);
-  }
-  return s;
-}
-
-Status HttpResponseCreateTestMessage(HttpResponse* response) {
-  *response = (HttpResponse) {};
-  response->code = StatusCodeToHttpStatusCode(StatusCode_Ok);;
-  String body = StringCreate(NULL,
-        "<!DOCTYPE html>"
-        "<html>"
-        "  <body>"
-        "    hello world"
-        "  </body>"
-        "</html>");
-  if (body.buf == NULL) { return RESOURCE_EXHAUSTED(""); }
-  response->body = body;
-  RETURN_IF_ERROR(HttpResponseAddHeader(
-        response, HttpHeaderKey_ContentType, StringCreate(NULL, "text/html")));
-  RETURN_IF_ERROR(HttpResponseAddHeader(
-        response, HttpHeaderKey_Connection, StringCreate(NULL, "close")));
-  RETURN_IF_ERROR(HttpResponseAddHeader(
-        response, HttpHeaderKey_ContentLength, StringCreate(NULL, "%d", body.length)));
-  return OK();
 }
 
 void HttpResponseFree(HttpResponse response) {
