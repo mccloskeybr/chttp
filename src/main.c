@@ -60,9 +60,19 @@ void HandleRequest(void* data) {
   ConnectionClose(context);
 }
 
-int32_t main() {
+int32_t main(int argc, char** argv) {
   char* address = "127.0.0.1";
-  uint16_t port = 6969;
+  uint16_t port = 8080;
+  for (int32_t i = 0; i < argc; i++) {
+    if (StringViewCompare(C_SV(argv[i]), C_SV("--address"))) {
+      address = argv[++i];
+    } else if (StringViewCompare(C_SV(argv[i]), C_SV("--port"))) {
+      port = (int16_t) atoi(argv[++i]);
+    } else if (StringViewCompare(C_SV(argv[i]), C_SV("--help"))) {
+      printf("Usage: --address <address> --port <port>.\nEx. --address 127.0.0.1 --port 8080\n");
+      exit(0);
+    }
+  }
 
   WSADATA wsa_data;
   int32_t wsa_startup_result = WSAStartup(MAKEWORD(2, 2), &wsa_data);
